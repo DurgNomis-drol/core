@@ -1,36 +1,41 @@
 """Support for International Space Station binary sensor."""
 from __future__ import annotations
 
-from datetime import timedelta
 import logging
+from typing import Any
 
-import pyiss
-import requests
-from requests.exceptions import HTTPError
 import voluptuous as vol
 
-from homeassistant.components.binary_sensor import PLATFORM_SCHEMA, BinarySensorEntity
+from homeassistant.components.binary_sensor import (
+    PLATFORM_SCHEMA,
+    BinarySensorEntity,
+    BinarySensorEntityDescription,
+)
+from homeassistant.components.iss import ISSDataObject
+from homeassistant.components.iss.const import (
+    ATTR_ISS_NEXT_RISE,
+    ATTR_ISS_NUMBER_PEOPLE_SPACE,
+    DEFAULT_DEVICE_CLASS,
+    DEFAULT_NAME,
+    DOMAIN,
+)
+from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import (
     ATTR_LATITUDE,
     ATTR_LONGITUDE,
     CONF_NAME,
     CONF_SHOW_ON_MAP,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
-from homeassistant.util import Throttle
+from homeassistant.helpers.update_coordinator import (
+    CoordinatorEntity,
+    DataUpdateCoordinator,
+)
 
 _LOGGER = logging.getLogger(__name__)
-
-ATTR_ISS_NEXT_RISE = "next_rise"
-ATTR_ISS_NUMBER_PEOPLE_SPACE = "number_of_people_in_space"
-
-DEFAULT_NAME = "ISS"
-DEFAULT_DEVICE_CLASS = "visible"
-
-MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=60)
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
@@ -40,90 +45,112 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 )
 
 
-def setup_platform(
+async def async_setup_platform(
     hass: HomeAssistant,
     config: ConfigType,
-    add_entities: AddEntitiesCallback,
+    async_add_entities: AddEntitiesCallback,
     discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
-    """Set up the ISS binary sensor."""
-    if None in (hass.config.latitude, hass.config.longitude):
-        _LOGGER.error("Latitude or longitude not set in Home Assistant config")
-        return
-
-    try:
-        iss_data = IssData(hass.config.latitude, hass.config.longitude)
-        iss_data.update()
-    except HTTPError as error:
-        _LOGGER.error(error)
-        return
-
-    name = config.get(CONF_NAME)
-    show_on_map = config.get(CONF_SHOW_ON_MAP)
-
-    add_entities([IssBinarySensor(iss_data, name, show_on_map)], True)
+    """Import ISS configuration from yaml."""
+    _LOGGER.warning(
+        "Configuration of the iss platform in YAML is deprecated and will be "
+        "removed in Home Assistant 2022.4; Your existing configuration "
+        "has been imported into the UI automatically and can be safely removed "
+        "from your configuration.yaml file"
+    )
+    hass.async_create_task(
+        hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": SOURCE_IMPORT},
+            data=config,
+        )
+    )
 
 
-class IssBinarySensor(BinarySensorEntity):
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up the sensor platform."""
+
+    name = entry.data.get(CONF_NAME, DEFAULT_NAME)
+    show_on_map = entry.data.get(CONF_SHOW_ON_MAP, False)
+
+    coordinator = hass.data[DOMAIN]
+
+    async_add_entities(
+        [
+            IssBinarySensor(
+                coordinator,
+                entry.entry_id,
+                show_on_map,
+                BinarySensorEntityDescription(
+                    key="iss",
+                    name=name,
+                    icon="mdi:space-station",
+                    device_class=DEFAULT_DEVICE_CLASS,
+                ),
+            ),
+        ]
+    )
+
+
+class IssBinarySensor(CoordinatorEntity, BinarySensorEntity):
     """Implementation of the ISS binary sensor."""
 
-    _attr_device_class = DEFAULT_DEVICE_CLASS
+    _iss_data: ISSDataObject | None = None
 
-    def __init__(self, iss_data, name, show):
-        """Initialize the sensor."""
-        self.iss_data = iss_data
-        self._state = None
-        self._attr_name = name
-        self._show_on_map = show
+    def __init__(
+        self,
+        coordinator: DataUpdateCoordinator,
+        entry_id: str,
+        show_on_map: bool,
+        description: BinarySensorEntityDescription,
+    ) -> None:
+        """Initialize a Launch Library entity."""
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = f"{entry_id}_{description.key}"
+        self._show_on_map = show_on_map
 
     @property
-    def is_on(self) -> bool:
+    def is_on(self) -> bool | None:
         """Return true if the binary sensor is on."""
-        return self.iss_data.is_above if self.iss_data else False
+        if self._iss_data is None:
+            return None
+        return self._iss_data.is_above
 
     @property
-    def extra_state_attributes(self):
-        """Return the state attributes."""
-        if self.iss_data:
-            attrs = {
-                ATTR_ISS_NUMBER_PEOPLE_SPACE: self.iss_data.number_of_people_in_space,
-                ATTR_ISS_NEXT_RISE: self.iss_data.next_rise,
-            }
-            if self._show_on_map:
-                attrs[ATTR_LONGITUDE] = self.iss_data.position.get("longitude")
-                attrs[ATTR_LATITUDE] = self.iss_data.position.get("latitude")
-            else:
-                attrs["long"] = self.iss_data.position.get("longitude")
-                attrs["lat"] = self.iss_data.position.get("latitude")
+    def available(self) -> bool:
+        """Return if the sensor is available."""
+        return super().available and self._iss_data is not None
 
-            return attrs
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return the attributes of the sensor."""
+        if self._iss_data is None:
+            return None
+        attrs = {
+            ATTR_ISS_NUMBER_PEOPLE_SPACE: self._iss_data.number_of_people_in_space,
+            ATTR_ISS_NEXT_RISE: self._iss_data.next_rise,
+        }
+        if self._show_on_map:
+            attrs[ATTR_LONGITUDE] = self._iss_data.position.get("longitude")
+            attrs[ATTR_LATITUDE] = self._iss_data.position.get("latitude")
+        else:
+            attrs["long"] = self._iss_data.position.get("longitude")
+            attrs["lat"] = self._iss_data.position.get("latitude")
 
-    def update(self):
-        """Get the latest data from ISS API and updates the states."""
-        self.iss_data.update()
+        return attrs
 
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        self._iss_data = self.coordinator.data
+        super()._handle_coordinator_update()
 
-class IssData:
-    """Get data from the ISS API."""
-
-    def __init__(self, latitude, longitude):
-        """Initialize the data object."""
-        self.is_above = None
-        self.next_rise = None
-        self.number_of_people_in_space = None
-        self.position = None
-        self.latitude = latitude
-        self.longitude = longitude
-
-    @Throttle(MIN_TIME_BETWEEN_UPDATES)
-    def update(self):
-        """Get the latest data from the ISS API."""
-        try:
-            iss = pyiss.ISS()
-            self.is_above = iss.is_ISS_above(self.latitude, self.longitude)
-            self.next_rise = iss.next_rise(self.latitude, self.longitude)
-            self.number_of_people_in_space = iss.number_of_people_in_space()
-            self.position = iss.current_location()
-        except (HTTPError, requests.exceptions.ConnectionError):
-            _LOGGER.error("Unable to retrieve data")
-            return False
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        await super().async_added_to_hass()
+        self._handle_coordinator_update()
