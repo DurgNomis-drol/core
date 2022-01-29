@@ -1,10 +1,13 @@
 """Support for tracking the moon phases."""
 from __future__ import annotations
 
+import logging
+
 from astral import moon
 import voluptuous as vol
 
 from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity
+from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 import homeassistant.helpers.config_validation as cv
@@ -12,27 +15,23 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 import homeassistant.util.dt as dt_util
 
+from .const import (
+    DOMAIN,
+    MOON_ICONS,
+    STATE_FIRST_QUARTER,
+    STATE_FULL_MOON,
+    STATE_LAST_QUARTER,
+    STATE_NEW_MOON,
+    STATE_WANING_CRESCENT,
+    STATE_WANING_GIBBOUS,
+    STATE_WAXING_CRESCENT,
+    STATE_WAXING_GIBBOUS,
+)
+
 DEFAULT_NAME = "Moon"
 
-STATE_FIRST_QUARTER = "first_quarter"
-STATE_FULL_MOON = "full_moon"
-STATE_LAST_QUARTER = "last_quarter"
-STATE_NEW_MOON = "new_moon"
-STATE_WANING_CRESCENT = "waning_crescent"
-STATE_WANING_GIBBOUS = "waning_gibbous"
-STATE_WAXING_GIBBOUS = "waxing_gibbous"
-STATE_WAXING_CRESCENT = "waxing_crescent"
+_LOGGER = logging.getLogger(__name__)
 
-MOON_ICONS = {
-    STATE_FIRST_QUARTER: "mdi:moon-first-quarter",
-    STATE_FULL_MOON: "mdi:moon-full",
-    STATE_LAST_QUARTER: "mdi:moon-last-quarter",
-    STATE_NEW_MOON: "mdi:moon-new",
-    STATE_WANING_CRESCENT: "mdi:moon-waning-crescent",
-    STATE_WANING_GIBBOUS: "mdi:moon-waning-gibbous",
-    STATE_WAXING_CRESCENT: "mdi:moon-waxing-crescent",
-    STATE_WAXING_GIBBOUS: "mdi:moon-waxing-gibbous",
-}
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string}
@@ -45,8 +44,29 @@ async def async_setup_platform(
     async_add_entities: AddEntitiesCallback,
     discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
-    """Set up the Moon sensor."""
-    name = config.get(CONF_NAME)
+    """Import Moon configuration from yaml."""
+    _LOGGER.warning(
+        "Configuration of the moon platform in YAML is deprecated and will be "
+        "removed in Home Assistant 2022.5; Your existing configuration "
+        "has been imported into the UI automatically and can be safely removed "
+        "from your configuration.yaml file"
+    )
+    hass.async_create_task(
+        hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": SOURCE_IMPORT},
+            data=config,
+        )
+    )
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up the sensor platform."""
+    name = entry.data.get(CONF_NAME, DEFAULT_NAME)
 
     async_add_entities([MoonSensor(name)], True)
 

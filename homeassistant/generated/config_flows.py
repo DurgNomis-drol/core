@@ -199,6 +199,7 @@ FLOWS = [
     "modem_callerid",
     "modern_forms",
     "monoprice",
+    "moon",
     "motion_blinds",
     "motioneye",
     "mqtt",

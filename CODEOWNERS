@@ -574,8 +574,8 @@ homeassistant/components/modern_forms/* @wonderslug
 tests/components/modern_forms/* @wonderslug
 homeassistant/components/monoprice/* @etsinko @OnFreund
 tests/components/monoprice/* @etsinko @OnFreund
-homeassistant/components/moon/* @fabaff
-tests/components/moon/* @fabaff
+homeassistant/components/moon/* @fabaff @DurgNomis-drol
+tests/components/moon/* @fabaff @DurgNomis-drol
 homeassistant/components/motion_blinds/* @starkillerOG
 tests/components/motion_blinds/* @starkillerOG
 homeassistant/components/motioneye/* @dermotduffy
