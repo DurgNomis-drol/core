@@ -40,7 +40,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def async_update() -> LaunchLibraryData:
         try:
             return LaunchLibraryData(
-                upcoming_launches=await launches.upcoming_launches(),
+                upcoming_launches=await launches.upcoming_launches(filters={"hide_recent_previous": "true"}),
                 starship_events=await launches.starship_events(),
             )
         except PyLaunchesException as ex:
